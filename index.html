@@ -12,6 +12,8 @@
 
   <!-- FontAwesome Icons CDN -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Paho MQTT Library: Sinkronisasi Nirkabel Antara Laptop & IFP Sekolah -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
 
   <style>
     :root {
@@ -960,6 +962,10 @@
 
     <!-- Jam Digital & Tombol Fullscreen TV -->
     <div style="display: flex; align-items: center; gap: 16px;">
+      <div id="syncBadge" style="display:flex; align-items:center; gap:8px; background:rgba(16,185,129,0.15); border:1px solid #10b981; color:#a7f3d0; padding:6px 14px; border-radius:99px; font-size:0.82rem; font-weight:700;">
+        <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981; display:inline-block;"></span>
+        <span id="syncText">Sistem Siap</span>
+      </div>
       <div class="clock-widget">
         <div class="time" id="appClock">00:00:00 WITA</div>
         <div class="date" id="appDate">Rabu, 18 November 2026</div>
@@ -1273,6 +1279,71 @@
     const STORAGE_KEY = 'spmb_queue_sdn3_unified_v3';
     const channel = new BroadcastChannel('spmb_sdn3_unified_channel');
 
+    /* ========================================================
+       SINKRONISASI ONLINE CLOUD (LAPTOP PETUGAS <-> IFP SEKOLAH)
+       ======================================================== */
+    const MQTT_BROKER = "broker.emqx.io";
+    const MQTT_PORT = 8084;
+    const MQTT_TOPIC = "sdn3_sungaidanau_spmb_antrean_v1";
+    let mqttClient = null;
+
+    function initCloudMqttSync() {
+      if (typeof Paho === 'undefined') return;
+      try {
+        const clientId = "spmb_" + Math.random().toString(36).substring(2, 10);
+        mqttClient = new Paho.MQTT.Client(MQTT_BROKER, Number(MQTT_PORT), "/mqtt", clientId);
+
+        mqttClient.onConnectionLost = (res) => {
+          console.warn("Koneksi cloud terputus, mencoba menghubungkan kembali...", res.errorMessage);
+          setTimeout(initCloudMqttSync, 3000);
+        };
+
+        mqttClient.onMessageArrived = (message) => {
+          try {
+            const payload = JSON.parse(message.payloadString);
+            if (payload.type === 'STATE_UPDATED') {
+              state = payload.state;
+              renderAll();
+            } else if (payload.type === 'PLAY_VOICE') {
+              playChimeAndSpeech(payload.number, payload.chimeType || state.chimeType);
+            }
+          } catch (e) {
+            console.error("MQTT payload error:", e);
+          }
+        };
+
+        mqttClient.connect({
+          useSSL: true,
+          timeout: 5,
+          keepAliveInterval: 30,
+          onSuccess: () => {
+            console.log("Cloud Sync Aktif: Laptop Petugas & IFP Sekolah Tersinkronisasi!");
+            mqttClient.subscribe(MQTT_TOPIC);
+          },
+          onFailure: (err) => {
+            console.warn("Gagal terhubung ke Cloud Sync:", err);
+            setTimeout(initCloudMqttSync, 4000);
+          }
+        });
+      } catch (err) {
+        console.warn("MQTT init error:", err);
+      }
+    }
+
+    function publishCloud(type, dataObj) {
+      if (mqttClient && mqttClient.isConnected()) {
+        try {
+          const payload = JSON.stringify({ type: type, ...dataObj });
+          const msg = new Paho.MQTT.Message(payload);
+          msg.destinationName = MQTT_TOPIC;
+          mqttClient.send(msg);
+        } catch (e) {
+          console.warn("Publish error:", e);
+        }
+      }
+    }
+    const channel = new BroadcastChannel('spmb_sdn3_unified_channel');
+
     let state = {
       appTitle: "Sistem Penerimaan Murid Baru",
       schoolName: "SD NEGERI 3 SUNGAI DANAU",
@@ -1312,24 +1383,48 @@
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         channel.postMessage({ type: 'STATE_UPDATED', state });
+        sendDirectMessageToTv({ type: 'STATE_UPDATED', state });
+        publishCloud('STATE_UPDATED', { state: state });
       } catch (e) {
         console.error("Save state error:", e);
       }
       renderAll();
     }
 
-    channel.onmessage = (event) => {
-      if (!event.data) return;
-      if (event.data.type === 'STATE_UPDATED') {
-        state = event.data.state;
+    function handleIncomingSyncMessage(data) {
+      if (!data) return;
+      if (data.type === 'STATE_UPDATED') {
+        state = data.state;
         renderAll();
-      } else if (event.data.type === 'PLAY_VOICE') {
-        playChimeAndSpeech(event.data.number, event.data.chimeType || state.chimeType);
+        updateConnectionBadge(true);
+      } else if (data.type === 'PLAY_VOICE') {
+        playChimeAndSpeech(data.number, data.chimeType || state.chimeType);
+        updateConnectionBadge(true);
+      } else if (data.type === 'PING') {
+        updateConnectionBadge(true);
       }
+    }
+
+    // A. Terima dari BroadcastChannel (Browser Tab Sama)
+    channel.onmessage = (event) => {
+      handleIncomingSyncMessage(event.data);
     };
+
+    // B. Terima dari Direct Window postMessage (100% bekerja di file:// dan HDMI Extend)
+    window.addEventListener('message', (event) => {
+      handleIncomingSyncMessage(event.data);
+    });
 
     window.addEventListener('storage', (e) => {
       if (e.key === STORAGE_KEY) loadPersistedState();
+      initCloudMqttSync();
+
+      // Kirim sinyal siap ke opener jika ini layar TV
+      if (isTvMode && window.opener) {
+        try {
+          window.opener.postMessage({ type: 'PING' }, '*');
+        } catch (e) {}
+      }
     });
 
     /* ========================================================
@@ -1736,9 +1831,40 @@
       if (btn) btn.classList.add('active');
     }
 
+    let tvChildWindow = null;
+
     function openTvDisplayWindow() {
-      const tvUrl = window.location.origin + window.location.pathname + '?mode=tv';
-      window.open(tvUrl, '_blank');
+      // Perbaikan URL: Pastikan bekerja sempurna baik di file://, localhost, maupun https://
+      let cleanUrl = window.location.href.split('?')[0].split('#')[0];
+      let tvUrl = cleanUrl + '?mode=tv';
+
+      tvChildWindow = window.open(tvUrl, 'sdn3_tv_screen');
+      if (tvChildWindow) {
+        showToast("Layar TV Aula terbuka. Tarik jendela ini ke layar IFP!");
+        // Kirim state awal setelah jendela terbuka
+        setTimeout(() => {
+          sendDirectMessageToTv({ type: 'STATE_UPDATED', state: state });
+        }, 1200);
+      } else {
+        alert("Browser memblokir pop-up! Harap izinkan pop-up di browser Anda agar layar TV bisa terbuka.");
+      }
+    }
+
+    function sendDirectMessageToTv(msgObj) {
+      if (tvChildWindow && !tvChildWindow.closed) {
+        try {
+          tvChildWindow.postMessage(msgObj, '*');
+        } catch (e) {
+          console.warn("Direct postMessage error:", e);
+        }
+      }
+      if (window.opener) {
+        try {
+          window.opener.postMessage(msgObj, '*');
+        } catch (e) {
+          console.warn("Opener postMessage error:", e);
+        }
+      }
     }
 
     function toggleFullScreen() {
@@ -1756,6 +1882,18 @@
       setTimeout(() => box.classList.remove('show'), 3000);
     }
 
+        function updateConnectionBadge(isConnected) {
+      const badge = document.getElementById('syncBadge');
+      const text = document.getElementById('syncText');
+      if (badge && text) {
+        if (isConnected) {
+          badge.style.borderColor = '#10b981';
+          badge.style.color = '#a7f3d0';
+          badge.style.background = 'rgba(16,185,129,0.18)';
+          text.textContent = 'Terhubung';
+        }
+      }
+    }
     function updateClock() {
       const now = new Date();
       const hours = String(now.getHours()).padStart(2, '0');
@@ -1770,6 +1908,14 @@
     // Inisialisasi awal saat halaman dimuat
     window.addEventListener('DOMContentLoaded', () => {
       loadPersistedState();
+      initCloudMqttSync();
+
+      // Kirim sinyal siap ke opener jika ini layar TV
+      if (isTvMode && window.opener) {
+        try {
+          window.opener.postMessage({ type: 'PING' }, '*');
+        } catch (e) {}
+      }
       updateClock();
       setInterval(updateClock, 1000);
 
