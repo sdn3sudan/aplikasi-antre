@@ -1285,20 +1285,41 @@
           </div>
 
           <div class="form-group" style="margin-top: 14px;">
-            <label for="settingChimeType"><i class="fa-solid fa-bell"></i> Pilihan Efek Suara Pembuka (Chime):</label>
+            <label for="settingChimeType"><i class="fa-solid fa-bell"></i> Pilihan Efek Suara Pembuka (Chime Lembut):</label>
             <select id="settingChimeType" class="form-control" onchange="setChimeType(this.value)">
-              <option value="station">🚉 Stasiun Kereta Api & Bandara (Melodi 4-Nada Harmoni Khas Pengumuman)</option>
-              <option value="bank">🏦 Antrean Bank Modern (Melodi 3-Nada Ding-Dong Kristal Khas Bank)</option>
-              <option value="classic">🔔 Bell Loket Tradisional (2-Nada Ding-Dong Klasik)</option>
+              <option value="airport">✈️ Bandara Internasional (Vibraphone 4-Nada Lembut & Gema Akustik Terminal)</option>
+              <option value="station">🚅 Stasiun Kereta Api Modern (Harmoni Lembut Stasiun KAI / Shinkansen)</option>
+              <option value="crystal">🌸 Lonceng Kristal Halus (Soft Soothing Bell - Menenangkan)</option>
+              <option value="bank">🏦 Antrean Bank Modern (3-Nada Kristal Ding-Dong)</option>
+              <option value="classic">🔔 Bell Loket Tradisional (2-Nada Ding-Dong)</option>
             </select>
+            <small style="color:#94a3b8;">Efek chime akustik yang hangat, tidak kasar, dan merdu di telinga.</small>
           </div>
 
           <div class="form-group">
-            <label for="settingVoiceTemplate"><i class="fa-solid fa-volume-high"></i> Format Kalimat Pemanggilan:</label>
+            <label for="settingVoiceTemplate"><i class="fa-solid fa-comment-dots"></i> Gaya Intonasi Bicara Operator:</label>
             <select id="settingVoiceTemplate" class="form-control" onchange="setVoiceTemplate(this.value)">
-              <option value="Nomor antrean {nomor}">"Nomor antrean [nomor]" (Contoh: "Nomor antrean 2")</option>
-              <option value="Nomor antrean {nomor}, silakan menuju loket pendaftaran">"Nomor antrean [nomor], silakan menuju loket pendaftaran"</option>
+              <option value="Perhatian... Nomor antrean, {nomor}.">"Perhatian... Nomor antrean, [nomor]." (Gaya Penyiar Stasiun/Bandara - Alami ⭐)</option>
+              <option value="Perhatian... Nomor antrean, {nomor}... silakan menuju loket pendaftaran.">"Perhatian... Nomor antrean, [nomor]... silakan menuju loket pendaftaran." (Santun & Lengkap)</option>
+              <option value="Nomor antrean, {nomor}.">"Nomor antrean, [nomor]." (Ringkas & Alami)</option>
             </select>
+            <small style="color:#94a3b8;">Jeda mikro dan intonasi titik memberikan gaya bicara manusiawi yang tenang.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="settingVoiceSelect"><i class="fa-solid fa-microphone-lines"></i> Karakter Suara Bahasa Indonesia:</label>
+            <select id="settingVoiceSelect" class="form-control" onchange="setChosenVoice(this.value)">
+              <option value="auto">🌟 Otomatis Pilih Suara Paling Lembut & Alami (Natural)</option>
+            </select>
+            <small id="voiceStatusHint" style="color:#a7f3d0;">Mendeteksi suara alami di perangkat Anda...</small>
+          </div>
+
+          <div class="form-group">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label for="settingVoiceRate"><i class="fa-solid fa-gauge"></i> Kecepatan Bicara (Tempo Santai):</label>
+              <span id="rateLabel" style="color:var(--gold-light); font-weight:700; font-size:0.85rem;">0.84x (Santai)</span>
+            </div>
+            <input type="range" id="settingVoiceRate" class="form-control" min="0.70" max="1.05" step="0.02" value="0.84" oninput="setVoiceRate(this.value)" style="height:38px; padding:4px;">
           </div>
 
           <div style="display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap:wrap;">
@@ -1346,8 +1367,11 @@
       schoolName: "SD NEGERI 3 SUNGAI DANAU",
       runningText: "Selamat Datang di SD NEGERI 3 SUNGAI DANAU SATUI. Harap perhatikan pemanggilan nomor antrean di layar.",
       displayLayout: "single",
-      voiceTemplate: "Nomor antrean {nomor}",
-      chimeType: "station",
+      voiceTemplate: "Perhatian... Nomor antrean, {nomor}.",
+      chimeType: "airport",
+      voiceRate: 0.84,
+      voicePitch: 0.96,
+      voiceURI: "auto",
       activeQueue: null,
       waitingQueue: [
         { id: "q-1", number: "1" },
@@ -1492,108 +1516,249 @@
       showToast("Audio Layar TV telah aktif.");
     }
 
+    /* MESIN SINTESIS CHIME AKUSTIK LEMBUT (STUDIO REVERB & WARM HARMONICS) */
+    function playAcousticChime(notes, interval, totalDuration) {
+      return new Promise(function(resolve) {
+        try {
+          var ctx = getAudioContext();
+          var curTime = ctx.currentTime;
+
+          // Filter low-pass untuk menghilangkan frekuensi tajam (menghasilkan suara hangat seperti bel logam ruang tunggu)
+          var warmFilter = ctx.createBiquadFilter();
+          warmFilter.type = "lowpass";
+          warmFilter.frequency.setValueAtTime(2400, curTime);
+          warmFilter.Q.setValueAtTime(1.1, curTime);
+
+          // Delay feedback untuk efek gema lembut terminal / aula
+          var delayNode = ctx.createDelay();
+          delayNode.delayTime.setValueAtTime(0.19, curTime);
+          var feedbackGain = ctx.createGain();
+          feedbackGain.gain.setValueAtTime(0.18, curTime);
+
+          delayNode.connect(feedbackGain);
+          feedbackGain.connect(delayNode);
+          delayNode.connect(ctx.destination);
+
+          warmFilter.connect(ctx.destination);
+          warmFilter.connect(delayNode);
+
+          notes.forEach(function(freq, idx) {
+            var noteStart = curTime + (idx * interval);
+
+            // 1. Nada Fundamental
+            var osc1 = ctx.createOscillator();
+            var gain1 = ctx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(freq, noteStart);
+
+            // 2. Harmonik kedua (memberikan rasa vibraphone / marimba akustik)
+            var osc2 = ctx.createOscillator();
+            var gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(freq * 2.0, noteStart);
+
+            // Kurva volume lembut (attack lembut 16ms, peluruhan bertahap)
+            gain1.gain.setValueAtTime(0.0001, noteStart);
+            gain1.gain.linearRampToValueAtTime(0.28, noteStart + 0.016);
+            gain1.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.98);
+
+            gain2.gain.setValueAtTime(0.0001, noteStart);
+            gain2.gain.linearRampToValueAtTime(0.07, noteStart + 0.012);
+            gain2.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.55);
+
+            osc1.connect(gain1);
+            gain1.connect(warmFilter);
+
+            osc2.connect(gain2);
+            gain2.connect(warmFilter);
+
+            osc1.start(noteStart);
+            osc1.stop(noteStart + 0.98);
+
+            osc2.start(noteStart);
+            osc2.stop(noteStart + 0.55);
+          });
+
+          setTimeout(resolve, (totalDuration || 1.35) * 1000);
+        } catch (e) {
+          resolve();
+        }
+      });
+    }
+
+    // 1. Chime Bandara Internasional (Vibraphone Lembut 4-Nada)
+    function playAirportChime() {
+      // F4 (349Hz) -> A4 (440Hz) -> C5 (523Hz) -> F5 (698Hz)
+      return playAcousticChime([349.23, 440.00, 523.25, 698.46], 0.25, 1.45);
+    }
+
+    // 2. Chime Stasiun Kereta Api Modern (Harmoni Lembut Stasiun KAI / Shinkansen)
     function playStationChime() {
-      return new Promise(function(resolve) {
-        try {
-          var ctx = getAudioContext();
-          var curTime = ctx.currentTime;
-          var stationNotes = [523.25, 659.25, 783.99, 1046.50];
-          var interval = 0.22;
-
-          stationNotes.forEach(function(freq, idx) {
-            var noteStart = curTime + (idx * interval);
-            var osc = ctx.createOscillator();
-            var gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, noteStart);
-            gain.gain.setValueAtTime(0.001, noteStart);
-            gain.gain.exponentialRampToValueAtTime(0.4, noteStart + 0.04);
-            gain.gain.exponentialRampToValueAtTime(0.001, noteStart + 0.65);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(noteStart);
-            osc.stop(noteStart + 0.65);
-          });
-          setTimeout(resolve, 1400);
-        } catch (e) { resolve(); }
-      });
+      // D4 (293Hz) -> F#4 (370Hz) -> A4 (440Hz) -> D5 (587Hz)
+      return playAcousticChime([293.66, 369.99, 440.00, 587.33], 0.23, 1.4);
     }
 
+    // 3. Chime Lonceng Kristal Lembut (Soft Soothing Crystal Bell)
+    function playCrystalChime() {
+      // E5 (659Hz) -> G#5 (830Hz) -> B5 (987Hz)
+      return playAcousticChime([659.25, 830.61, 987.77], 0.26, 1.25);
+    }
+
+    // 4. Chime Antrean Bank Modern (Ding-Dong Kristal)
     function playBankChime() {
-      return new Promise(function(resolve) {
-        try {
-          var ctx = getAudioContext();
-          var curTime = ctx.currentTime;
-          var bankNotes = [587.33, 880.00, 1174.66];
-          var interval = 0.25;
-
-          bankNotes.forEach(function(freq, idx) {
-            var noteStart = curTime + (idx * interval);
-            var osc = ctx.createOscillator();
-            var gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, noteStart);
-            gain.gain.setValueAtTime(0.001, noteStart);
-            gain.gain.exponentialRampToValueAtTime(0.35, noteStart + 0.03);
-            gain.gain.exponentialRampToValueAtTime(0.001, noteStart + 0.7);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(noteStart);
-            osc.stop(noteStart + 0.7);
-          });
-          setTimeout(resolve, 1250);
-        } catch (e) { resolve(); }
-      });
+      // D5 (587Hz) -> A5 (880Hz) -> D6 (1174Hz)
+      return playAcousticChime([587.33, 880.00, 1174.66], 0.24, 1.25);
     }
 
+    // 5. Chime Klasik
     function playClassicChime() {
-      return new Promise(function(resolve) {
-        try {
-          var ctx = getAudioContext();
-          var curTime = ctx.currentTime;
-          var classicNotes = [523.25, 659.25];
-          var interval = 0.32;
+      return playAcousticChime([523.25, 659.25], 0.32, 1.1);
+    }
 
-          classicNotes.forEach(function(freq, idx) {
-            var noteStart = curTime + (idx * interval);
-            var osc = ctx.createOscillator();
-            var gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, noteStart);
-            gain.gain.setValueAtTime(0.001, noteStart);
-            gain.gain.exponentialRampToValueAtTime(0.4, noteStart + 0.03);
-            gain.gain.exponentialRampToValueAtTime(0.001, noteStart + 0.8);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(noteStart);
-            osc.stop(noteStart + 0.8);
-          });
-          setTimeout(resolve, 1100);
-        } catch (e) { resolve(); }
+    /* PENCARI SUARA MANUSIAWI ALAMI (SMART NEURAL VOICE SELECTOR) */
+    function getBestOperatorVoice() {
+      if (!('speechSynthesis' in window)) return null;
+      var voices = window.speechSynthesis.getVoices();
+      if (!voices || voices.length === 0) return null;
+
+      // Jika user memilih suara tertentu dari dropdown
+      if (state.voiceURI && state.voiceURI !== 'auto') {
+        var userChoice = voices.find(function(v) { return v.voiceURI === state.voiceURI; });
+        if (userChoice) return userChoice;
+      }
+
+      // 1. Prioritaskan Suara Natural / Online Neural Bahasa Indonesia (Sangat Lembut seperti Manusia Asli)
+      var naturalIndo = voices.find(function(v) {
+        var name = (v.name || '').toLowerCase();
+        var lang = (v.lang || '').toLowerCase();
+        var isIndo = lang.includes('id') || lang.includes('ind');
+        return isIndo && (name.includes('natural') || name.includes('online') || name.includes('gadis') || name.includes('ardi'));
       });
+      if (naturalIndo) return naturalIndo;
+
+      // 2. Prioritaskan Google Bahasa Indonesia
+      var googleIndo = voices.find(function(v) {
+        var name = (v.name || '').toLowerCase();
+        var lang = (v.lang || '').toLowerCase();
+        return (lang.includes('id') || lang.includes('ind')) && name.includes('google');
+      });
+      if (googleIndo) return googleIndo;
+
+      // 3. Suara Bahasa Indonesia apa pun yang tersedia di perangkat
+      var anyIndo = voices.find(function(v) {
+        var lang = (v.lang || '').toLowerCase();
+        return lang.includes('id') || lang.includes('ind');
+      });
+      if (anyIndo) return anyIndo;
+
+      return voices[0];
+    }
+
+    function populateVoiceList() {
+      if (!('speechSynthesis' in window)) return;
+      var select = document.getElementById('settingVoiceSelect');
+      if (!select) return;
+
+      var voices = window.speechSynthesis.getVoices();
+      if (!voices || voices.length === 0) return;
+
+      select.innerHTML = '<option value="auto">🌟 Otomatis Pilih Suara Paling Lembut & Alami (Rekomendasi)</option>';
+
+      var indoVoices = [];
+      var otherVoices = [];
+
+      voices.forEach(function(v) {
+        var lang = (v.lang || '').toLowerCase();
+        var name = (v.name || '');
+        if (lang.includes('id') || lang.includes('ind')) {
+          indoVoices.push(v);
+        } else if (name.includes('Natural') || name.includes('Google') || lang.includes('en')) {
+          otherVoices.push(v);
+        }
+      });
+
+      indoVoices.forEach(function(v) {
+        var opt = document.createElement('option');
+        opt.value = v.voiceURI;
+        var isNatural = v.name.toLowerCase().includes('natural') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('online');
+        opt.textContent = '🇮🇩 ' + v.name + (isNatural ? ' ⭐ (Sangat Lembut/Alami)' : '');
+        select.appendChild(opt);
+      });
+
+      otherVoices.slice(0, 5).forEach(function(v) {
+        var opt = document.createElement('option');
+        opt.value = v.voiceURI;
+        opt.textContent = '🌐 ' + v.name + ' (' + v.lang + ')';
+        select.appendChild(opt);
+      });
+
+      if (state.voiceURI && state.voiceURI !== 'auto') {
+        select.value = state.voiceURI;
+      }
+
+      var hint = document.getElementById('voiceStatusHint');
+      if (hint) {
+        var activeVoice = getBestOperatorVoice();
+        if (activeVoice) {
+          hint.textContent = "Suara aktif saat ini: " + activeVoice.name;
+        }
+      }
     }
 
     function playChimeAndSpeech(queueNumber, chimeChoice) {
-      var type = chimeChoice || state.chimeType || 'station';
+      var type = chimeChoice || state.chimeType || 'airport';
       var chimePromise;
-      if (type === 'station') chimePromise = playStationChime();
+
+      if (type === 'airport') chimePromise = playAirportChime();
+      else if (type === 'station') chimePromise = playStationChime();
+      else if (type === 'crystal') chimePromise = playCrystalChime();
       else if (type === 'bank') chimePromise = playBankChime();
       else chimePromise = playClassicChime();
 
       chimePromise.then(function() {
         if ('speechSynthesis' in window) {
           window.speechSynthesis.cancel();
-          var sentence = (state.voiceTemplate || "Nomor antrean {nomor}").replace('{nomor}', queueNumber);
+
+          // Pengaturan frasa manusiawi: jeda titik/koma alami
+          var template = state.voiceTemplate || "Perhatian... Nomor antrean, {nomor}.";
+          var sentence = template.replace('{nomor}', queueNumber);
+
           var utterance = new SpeechSynthesisUtterance(sentence);
           utterance.lang = 'id-ID';
-          utterance.rate = 0.88;
-          utterance.pitch = 1.0;
-          var voices = window.speechSynthesis.getVoices();
-          var idVoice = voices.find(function(v) { return v.lang.includes('id') || v.lang.includes('ID'); });
-          if (idVoice) utterance.voice = idVoice;
+
+          // Kecepatan dan nada santai seperti penyiar stasiun / bandara
+          utterance.rate = state.voiceRate || 0.84;
+          utterance.pitch = state.voicePitch || 0.96;
+
+          var chosenVoice = getBestOperatorVoice();
+          if (chosenVoice) {
+            utterance.voice = chosenVoice;
+          }
+
           window.speechSynthesis.speak(utterance);
         }
       });
+    }
+
+    function setChosenVoice(val) {
+      state.voiceURI = val;
+      saveStateAndBroadcast();
+      var hint = document.getElementById('voiceStatusHint');
+      if (hint) {
+        var activeVoice = getBestOperatorVoice();
+        if (activeVoice) hint.textContent = "Suara aktif saat ini: " + activeVoice.name;
+      }
+      showToast("Karakter suara diperbarui.");
+    }
+
+    function setVoiceRate(val) {
+      state.voiceRate = parseFloat(val);
+      var label = document.getElementById('rateLabel');
+      if (label) {
+        var txt = val < 0.8 ? "Sangat Santai" : (val > 0.95 ? "Cepat" : "Santai & Alami");
+        label.textContent = val + "x (" + txt + ")";
+      }
+      saveStateAndBroadcast();
     }
 
     /* ========================================================
@@ -1864,7 +2029,15 @@
       document.getElementById('settingAppTitle').value = state.appTitle;
       document.getElementById('settingSchoolName').value = state.schoolName;
       document.getElementById('settingRunningText').value = state.runningText;
-      document.getElementById('settingChimeType').value = state.chimeType || 'station';
+      document.getElementById('settingChimeType').value = state.chimeType || 'airport';
+      if (document.getElementById('settingVoiceSelect') && state.voiceURI) {
+        document.getElementById('settingVoiceSelect').value = state.voiceURI;
+      }
+      if (document.getElementById('settingVoiceRate') && state.voiceRate) {
+        document.getElementById('settingVoiceRate').value = state.voiceRate;
+        var rLabel = document.getElementById('rateLabel');
+        if (rLabel) rLabel.textContent = state.voiceRate + 'x (Santai)';
+      }
       document.getElementById('settingVoiceTemplate').value = state.voiceTemplate || "Nomor antrean {nomor}";
       document.getElementById('cardSingleLayout').classList.toggle('selected', state.displayLayout === 'single');
       document.getElementById('cardDualLayout').classList.toggle('selected', state.displayLayout === 'dual');
@@ -1944,6 +2117,12 @@
     window.addEventListener('DOMContentLoaded', function() {
       loadPersistedState();
       initCloudMqttSync();
+      populateVoiceList();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = function() {
+          populateVoiceList();
+        };
+      }
       updateClock();
       setInterval(updateClock, 1000);
 
