@@ -1128,8 +1128,11 @@
               <button class="btn btn-recall" onclick="triggerCallActive()">
                 <i class="fa-solid fa-rotate-right"></i> Panggil Ulang
               </button>
-              <button class="btn btn-next" onclick="serveNextQueue()">
-                <i class="fa-solid fa-forward-step"></i> Panggil Berikutnya
+              <button class="btn btn-recall" onclick="servePreviousQueue()" title="Pintasan keyboard: tombol panah kiri (←)">
+                <i class="fa-solid fa-backward-step"></i> Panggil Sebelumnya (←)
+              </button>
+              <button class="btn btn-next" onclick="serveNextQueue()" title="Pintasan keyboard: tombol panah kanan (→)">
+                <i class="fa-solid fa-forward-step"></i> Panggil Berikutnya (→)
               </button>
               <button class="btn btn-complete" onclick="markComplete()">
                 <i class="fa-solid fa-circle-check"></i> Selesai
@@ -1894,6 +1897,36 @@
       saveStateAndBroadcast();
       triggerCallActive();
     }
+
+    function servePreviousQueue() {
+      if (!state.completedQueue || state.completedQueue.length === 0) {
+        showToast("Tidak ada antrean sebelumnya.");
+        return;
+      }
+      // Nomor yang sedang aktif dikembalikan ke urutan teratas daftar tunggu
+      if (state.activeQueue) {
+        state.waitingQueue.unshift(state.activeQueue);
+      }
+      // Nomor yang terakhir selesai dipanggil kembali sebagai nomor aktif
+      state.activeQueue = state.completedQueue.pop();
+      saveStateAndBroadcast();
+      triggerCallActive();
+    }
+
+    /* Pintasan keyboard operator: panah kanan = berikutnya, panah kiri = sebelumnya */
+    document.addEventListener('keydown', function(e) {
+      if (isTvMode) return;
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      if (e.repeat || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      var t = e.target;
+      var tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
+      var op = document.getElementById('viewOperator');
+      if (!op || !op.classList.contains('active-panel')) return;
+      e.preventDefault();
+      if (e.key === 'ArrowRight') serveNextQueue();
+      else servePreviousQueue();
+    });
 
     function markComplete() {
       if (!state.activeQueue) return;
